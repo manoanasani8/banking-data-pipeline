@@ -62,7 +62,27 @@ The generator adds six intentionally defective rows after the requested number o
 | `artifacts/rejected.csv` | Original rejected rows plus validation reasons |
 | `artifacts/quality_report.json` | Input fingerprint, row counts, acceptance rate and rejection reasons |
 
-The pipeline prints a concise run summary. Each run replaces the local transaction table with the accepted contents of that input batch. It does not append duplicates on reruns. Existing data is replaced inside a database transaction. Exports are regenerated afterward; exports and the database are not one cross-file transaction.
+The default `snapshot` mode replaces the local table with the accepted rows in the input. Database writes are transactional. Exports are regenerated afterward and represent the latest run; they are not committed with the database.
+
+## Incremental loading
+
+```sh
+python -m banking_pipeline.run --input data/transactions.csv --output-dir artifacts --mode incremental
+```
+
+Use the same output directory for successive batches. New transaction IDs are inserted; identical existing rows are counted as replays; changed records for an existing ID are rejected with `existing_transaction_conflict`. Existing rows are never silently overwritten. The report separates inserted, replayed, and rejected rows. Daily metrics reflect all stored transactions. Do not switch back to snapshot mode on this database unless you intend to replace its contents.
+
+## Account reconciliation
+
+Prepare an independent source control CSV with `account_id,transaction_count,credit_cents,debit_cents`. Supply one row per account using totals for the same complete period and transaction population as the SQLite database. Do not generate the controls from the SQLite table being checked.
+
+```sh
+python -m banking_pipeline.reconcile --database artifacts/banking.sqlite --controls data/account_controls.csv --output artifacts/account_reconciliation.csv
+```
+
+The report identifies matched accounts, mismatched totals, missing accounts, and unexpected accounts. Deltas are actual minus expected. The command returns 0 for a match, 2 for reconciliation exceptions, and 1 for an input or processing error.
+
+See [Airflow scheduling design](docs/airflow-design.md) for a proposed daily schedule, quality gates, retry behavior, and backfill plan.
 
 ## Data contract
 
