@@ -1,0 +1,35 @@
+name: Airflow end-to-end demo
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/airflow-demo.yml
+      - dags/**
+      - banking_pipeline/**
+      - examples/**
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      AIRFLOW_HOME: /tmp/banking-demo-airflow
+      BANKING_PIPELINE_ROOT: /tmp/banking-demo-data
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Airflow 3.3.2
+        run: pip install 'apache-airflow==3.3.2' --constraint 'https://raw.githubusercontent.com/apache/airflow/constraints-3.3.2/constraints-3.12.txt'
+      - name: Verify matching and mismatched deliveries
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        shell: bash
+        run: |
+          export AIRFLOW__CORE__DAGS_FOLDER="$GITHUB_WORKSPACE/dags"
+          airflow db migrate
+          airflow pools set banking_sqlite_writer 1 'Single SQLite writer'
+          python examples/airflow_demo.py
