@@ -105,6 +105,19 @@ The demo intentionally returns **exit code 2** and writes three exceptions. Repl
 
 The [Airflow 3 DAG](dags/banking_daily.py) waits for a delivery manifest, checks input hashes, loads transactions incrementally, reconciles accounts, and publishes reports only after the checks pass. See the [deployment and delivery instructions](docs/airflow-design.md). The core pipeline and demo still run without Airflow.
 
+### Airflow end-to-end verification
+
+The [successful GitHub Actions run](https://github.com/manoanasani8/banking-data-pipeline/actions/runs/42265498455#summary-128056223911) exercised the DAG with Apache Airflow 3.3.2 on Linux using `airflow dags test`:
+
+| Delivery | Verified behavior |
+| --- | --- |
+| Matching controls | Two accounts matched; reports and `_SUCCESS.json` were published |
+| Deliberate mismatch | Account A2 had a +$2.00 debit variance; the exception report was saved and no publication marker was written |
+
+![Successful Airflow end-to-end verification in GitHub Actions](docs/airflow-run.jpg)
+
+To reproduce both cases, open **Actions → Airflow end-to-end demo → Run workflow**. This is an isolated test run; it does not deploy a persistent Airflow scheduler.
+
 ## Data contract
 
 Required columns: `transaction_id`, `account_id`, `transaction_date`, `transaction_type`, `amount`, `currency`, `merchant_category`.
