@@ -82,7 +82,28 @@ python -m banking_pipeline.reconcile --database artifacts/banking.sqlite --contr
 
 The report identifies matched accounts, mismatched totals, missing accounts, and unexpected accounts. Deltas are actual minus expected. The command returns 0 for a match, 2 for reconciliation exceptions, and 1 for an input or processing error.
 
-See [Airflow scheduling design](docs/airflow-design.md) for a proposed daily schedule, quality gates, retry behavior, and backfill plan.
+### Sample reconciliation results
+
+This example loads two batches into a fresh database (four synthetic transactions total) and compares the results against a separate controls fixture. Use an unused `artifacts/reconciliation-demo` directory for the first run.
+
+```sh
+python -m banking_pipeline.run --mode incremental --input examples/batch-1.csv --output-dir artifacts/reconciliation-demo
+python -m banking_pipeline.run --mode incremental --input examples/batch-2.csv --output-dir artifacts/reconciliation-demo
+python -m banking_pipeline.reconcile --database artifacts/reconciliation-demo/banking.sqlite --controls examples/account-controls.csv --output artifacts/reconciliation-demo/account_reconciliation.csv
+```
+
+| Account | Result | Evidence |
+| --- | --- | --- |
+| A1 | Matched | Two transactions; $100.00 credit and $25.00 debit agree |
+| A2 | Total mismatch | $30.00 actual debit vs. $28.00 expected; +$2.00 delta |
+| A3 | Unexpected account | $15.00 actual credit with no control row |
+| A4 | Missing account | $12.00 expected credit with no loaded transaction |
+
+The demo intentionally returns **exit code 2** and writes three exceptions. Replaying the same two batches does not add rows.
+
+## Airflow scheduling
+
+The [Airflow 3 DAG](dags/banking_daily.py) waits for a delivery manifest, checks input hashes, loads transactions incrementally, reconciles accounts, and publishes reports only after the checks pass. See the [deployment and delivery instructions](docs/airflow-design.md). The core pipeline and demo still run without Airflow.
 
 ## Data contract
 
