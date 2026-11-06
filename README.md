@@ -1,8 +1,22 @@
 # Banking Transaction Data Pipeline
 
+[![Pipeline tests](https://github.com/manoanasani8/banking-data-pipeline/actions/workflows/tests.yml/badge.svg)](https://github.com/manoanasani8/banking-data-pipeline/actions/workflows/tests.yml)
+
 A local data engineering project that turns synthetic bank transactions into validated records, a quality report, and daily analytics in SQLite.
 
 Built as a portfolio project by **Mano Anasani**. Uses Python's standard library, so no cloud account, API key, or third-party package is required.
+
+## Sample results
+
+The seeded demo loaded **1,000 valid transactions** and rejected **6 deliberately defective records**. Here are the first three days of the SQLite summary, converted from integer cents to USD for display:
+
+| Date | Transactions | Credits | Debits | Net flow |
+| --- | ---: | ---: | ---: | ---: |
+| 2026-01-01 | 26 | $14,510.01 | $14,147.58 | $362.43 |
+| 2026-01-02 | 39 | $18,572.82 | $27,055.16 | -$8,482.34 |
+| 2026-01-03 | 34 | $23,735.91 | $18,649.78 | $5,086.13 |
+
+For example, transaction `BAD-1` was written to `rejected.csv` with reason `invalid_amount` because its amount was `-12.50`. It was excluded from the daily totals.
 
 ## What it demonstrates
 
