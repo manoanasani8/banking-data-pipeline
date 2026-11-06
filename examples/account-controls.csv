@@ -1,0 +1,4 @@
+account_id,transaction_count,credit_cents,debit_cents
+A1,2,10000,2500
+A2,1,0,2800
+A4,1,1200,0

@@ -1,0 +1,3 @@
+transaction_id,account_id,transaction_date,transaction_type,amount,currency,merchant_category
+T1,A1,2026-01-01,credit,100.00,USD,payroll
+T2,A2,2026-01-01,debit,30.00,USD,retail
