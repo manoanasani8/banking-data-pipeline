@@ -1,4 +1,3 @@
-from contextlib import closing
 """Validate a CSV batch and publish SQLite analytics and quality artifacts."""
 import argparse
 import csv
@@ -7,6 +6,7 @@ import json
 import re
 import sqlite3
 from collections import Counter
+from contextlib import closing
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -45,7 +45,9 @@ def validate(row):
     return (None if errors else clean), errors
 
 
-def run(input_path, output_dir):
+def run(input_path, output_dir, mode='snapshot'):
+    if mode not in ('snapshot', 'incremental'):
+        raise ValueError('Unsupported load mode')
     input_path, output_dir = Path(input_path), Path(output_dir)
     # Read once so the audit fingerprint describes the bytes actually processed.
     raw = input_path.read_bytes()
@@ -66,18 +68,32 @@ def run(input_path, output_dir):
                              'extra_values': json.dumps(row.get(None, []))})
         else:
             seen.add(clean['transaction_id'])
-            accepted.append(clean)
+            accepted.append((row_number, row, clean))
     output_dir.mkdir(parents=True, exist_ok=True)
+    inserted = replayed = 0
     with closing(sqlite3.connect(output_dir / 'banking.sqlite')) as db, db:
+        db.execute('BEGIN IMMEDIATE')
         db.execute('''CREATE TABLE IF NOT EXISTS transactions (
             transaction_id TEXT PRIMARY KEY, account_id TEXT NOT NULL,
             transaction_date TEXT NOT NULL, transaction_type TEXT NOT NULL,
             amount_cents INTEGER NOT NULL CHECK(amount_cents > 0),
             currency TEXT NOT NULL, merchant_category TEXT NOT NULL)''')
-        db.execute('DELETE FROM transactions')
-        db.executemany('''INSERT INTO transactions VALUES
-            (:transaction_id, :account_id, :transaction_date, :transaction_type,
-             :amount_cents, :currency, :merchant_category)''', accepted)
+        if mode == 'snapshot':
+            db.execute('DELETE FROM transactions')
+        keys = ('transaction_id', 'account_id', 'transaction_date', 'transaction_type',
+                'amount_cents', 'currency', 'merchant_category')
+        for row_number, row, clean in accepted:
+            values = tuple(clean[key] for key in keys)
+            existing = db.execute('SELECT * FROM transactions WHERE transaction_id=?', values[:1]).fetchone() if mode == 'incremental' else None
+            if existing == values:
+                replayed += 1
+            elif existing is not None:
+                reason = 'existing_transaction_conflict'
+                reasons[reason] += 1
+                rejected.append({**row, 'row_number': row_number, 'errors': reason, 'extra_values': '[]'})
+            else:
+                db.execute('INSERT INTO transactions VALUES (?, ?, ?, ?, ?, ?, ?)', values)
+                inserted += 1
         db.execute('''CREATE VIEW IF NOT EXISTS daily_metrics AS
             SELECT transaction_date, COUNT(*) AS transaction_count,
             SUM(CASE WHEN transaction_type='credit' THEN amount_cents ELSE 0 END) AS credit_cents,
@@ -94,12 +110,14 @@ def run(input_path, output_dir):
     with (output_dir / 'rejected.csv').open('w', newline='', encoding='utf-8') as handle:
         writer = csv.DictWriter(handle, fieldnames=FIELDS + ['row_number', 'errors', 'extra_values'])
         writer.writeheader()
-        writer.writerows(rejected)
-    total = len(accepted) + len(rejected)
+        writer.writerows(sorted(rejected, key=lambda row: row['row_number']))
+    accepted_count = inserted + replayed
+    total = accepted_count + len(rejected)
     report = {'input_file': input_path.name, 'input_sha256': hashlib.sha256(raw).hexdigest(),
-              'total_rows': total, 'accepted_rows': len(accepted),
+              'load_mode': mode, 'inserted_rows': inserted, 'replayed_rows': replayed,
+              'total_rows': total, 'accepted_rows': accepted_count,
               'rejected_rows': len(rejected),
-              'acceptance_rate': round(len(accepted) / total, 6) if total else 0,
+              'acceptance_rate': round(accepted_count / total, 6) if total else 0,
               'rejection_reasons': dict(sorted(reasons.items()))}
     (output_dir / 'quality_report.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
     return report
@@ -109,9 +127,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--input', required=True)
     parser.add_argument('--output-dir', default='artifacts')
+    parser.add_argument('--mode', choices=['snapshot', 'incremental'], default='snapshot')
     args = parser.parse_args()
     try:
-        report = run(args.input, args.output_dir)
+        report = run(args.input, args.output_dir, args.mode)
     except (OSError, ValueError, csv.Error, sqlite3.Error) as exc:
         parser.exit(1, f'Pipeline failed: {exc}\n')
     print(json.dumps(report, indent=2))
